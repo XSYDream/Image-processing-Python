@@ -1,0 +1,81 @@
+# 导入所需模块
+import cv2 as cv
+import collections
+import numpy as np
+import imutils
+import socket
+import time
+# 打开摄像头
+url_s = 'http://192.168.1.1:8080/?action=stream'
+cap = cv.VideoCapture(url_s )
+# 创建一个socket:
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+# 建立连接:
+s.connect(('192.168.1.1', 2001))
+
+
+while True:
+    # 读取每一帧
+    _, frame = cap.read()
+    # 重设图片尺寸以提高计算速度
+    frame = imutils.resize(frame, width=600)
+    # 进行高斯模糊str1 = ','.join(arr)
+    blurred = cv.GaussianBlur(frame, (11, 11), 0)
+    # 转换颜色空间到HSV
+    hsv = cv.cvtColor(blurred, cv.COLOR_BGR2HSV)
+    # 定义蓝色无图的HSV阈值
+    lower_red = np.array([20, 100, 100])
+    upper_red = np.array([220, 255, 255])
+    # 对图片进行二值化处理
+    mask = cv.inRange(hsv, lower_red, upper_red)
+    # 腐蚀操作
+    mask = cv.erode(mask, None, iterations=2)
+    # 膨胀操作，先腐蚀后膨胀以滤除噪声
+    mask = cv.dilate(mask, None, iterations=2)
+    cv.imshow('yuantu', frame)
+    cv.imshow('mask', mask)
+
+    # 寻找图中轮廓
+    cnts = cv.findContours(mask.copy(), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)[-2]
+
+    # 如果存在至少一个轮廓则进行如下操作
+    if len(cnts) > 0:
+        # 找到面积最大的轮廓
+        c = max(cnts, key=cv.contourArea)
+        # 使用最小外接圆圈出面积最大的轮廓
+        ((x, y), radius) = cv.minEnclosingCircle(c)
+        # 计算轮廓的矩
+        M = cv.moments(c)
+        # 计算轮廓的重心
+        center = (int(M["m10"] / M["m00"]), int(M["m01"] /  M["m00"]))
+        zuobiao=np.array(center)
+        print(zuobiao)
+        if zuobiao[1]>240:
+            s.send(b'0')
+            print('停')
+        else:
+            if zuobiao[0]>400:
+                s.send(b'1')
+                print('右')
+            elif zuobiao[0]<200:
+                    s.send(b'2')
+                    print('左')
+            elif 240<zuobiao[0]<400:
+                    s.send(b'3')
+                    print('前')
+         # 只处理尺寸足够大的轮廓
+        if radius > 5:
+            # 画出最小外接圆
+            cv.circle(frame, (int(x), int(y)), int(radius), (0, 255, 255), 2)
+            # 画出重心
+            cv.circle(frame, center, 5, (0, 0, 255), -1)
+        zuobiao=[]
+    else:
+        print('无图像')
+        s.send(b'4')
+    cv.imshow('frame', frame)
+    k = cv.waitKey(5) & 0xFF
+    if k == 27:
+        break
+cap.release()
+cv.destroyAllWindows()
